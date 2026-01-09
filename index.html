@@ -130,94 +130,157 @@
       </div>
     </div>
 
-    <script>
-      let foods = JSON.parse(localStorage.getItem("foods")) || [];
+    <script type="module">
+      import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js'
+      import {
+        getFirestore,
+        collection,
+        addDoc,
+        getDocs,
+        query,
+        where,
+        deleteDoc,
+        doc
+      } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js'
+      import {
+        getAuth,
+        signInAnonymously,
+        onAuthStateChanged
+      } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js'
 
-      function saveToLocalStorage() {
-        localStorage.setItem("foods", JSON.stringify(foods));
+      // 🔹 Your Firebase config
+      const firebaseConfig = {
+        apiKey: 'AIzaSyBNLdpGD9XMxY_5xCxeCvy8szbBXJVj9Zk',
+        authDomain: 'macro-tracker-4b15c.firebaseapp.com',
+        projectId: 'macro-tracker-4b15c',
+        storageBucket: 'macro-tracker-4b15c.firebasestorage.app',
+        messagingSenderId: '461230729270',
+        appId: '1:461230729270:web:00bed39367c087015b9097'
       }
 
-      function loadFoods() {
-        foods.forEach((food) => addRow(food));
-        updateTotals();
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig)
+      const db = getFirestore(app)
+      const auth = getAuth(app)
+
+      let userId = null
+      let foods = []
+      const today = new Date().toISOString().split('T')[0]
+
+      const dailyTargets = {
+        calories: 1900,
+        protein: 160,
+        carbs: 160,
+        fat: 65
       }
 
-      function addFood() {
-        const foodName = document.getElementById("food").value.trim();
-        const protein = Number(document.getElementById("protein").value);
-        const carbs = Number(document.getElementById("carbs").value);
-        const fat = Number(document.getElementById("fat").value);
-        const calories = Number(document.getElementById("calories").value);
+      signInAnonymously(auth)
 
-        if (!foodName || protein < 0 || carbs < 0 || fat < 0 || calories < 0) {
-          alert("Please enter valid values.");
-          return;
+      onAuthStateChanged(auth, async user => {
+        if (user) {
+          userId = user.uid
+          await loadTodayMacros()
         }
+      })
 
-        const food = { foodName, protein, carbs, fat, calories };
-        foods.push(food);
+      async function loadTodayMacros() {
+        foods = []
+        document.getElementById('foodTable').innerHTML = ''
 
-        saveToLocalStorage();
-        addRow(food);
-        updateTotals();
-        clearInputs();
+        const q = query(
+          collection(db, 'users', userId, 'macros'),
+          where('date', '==', today)
+        )
+
+        const snapshot = await getDocs(q)
+        snapshot.forEach(docSnap => {
+          const data = docSnap.data()
+          data.id = docSnap.id // store document id for deletion
+          foods.push(data)
+          addRow(data)
+        })
+
+        updateTotals()
       }
 
       function addRow(food) {
-        const table = document.getElementById("foodTable");
-        const row = table.insertRow();
-
-        row.innerHTML = `
+        const table = document.getElementById('foodTable')
+        const tr = document.createElement('tr')
+        tr.innerHTML = `
       <td>${food.foodName}</td>
       <td>${food.protein}</td>
       <td>${food.carbs}</td>
       <td>${food.fat}</td>
       <td>${food.calories}</td>
-    `;
+      <td><button onclick="deleteFood('${food.id}')">Delete</button></td>
+    `
+        table.appendChild(tr)
       }
 
       function updateTotals() {
-        let totals = { protein: 0, carbs: 0, fat: 0, calories: 0 };
+        const totals = foods.reduce(
+          (acc, f) => {
+            acc.protein += f.protein
+            acc.carbs += f.carbs
+            acc.fat += f.fat
+            acc.calories += f.calories
+            return acc
+          },
+          { protein: 0, carbs: 0, fat: 0, calories: 0 }
+        )
 
-        foods.forEach((f) => {
-          totals.protein += f.protein;
-          totals.carbs += f.carbs;
-          totals.fat += f.fat;
-          totals.calories += f.calories;
-        });
-
-        // Table totals
-        document.getElementById("totalProtein").textContent = totals.protein;
-        document.getElementById("totalCarbs").textContent = totals.carbs;
-        document.getElementById("totalFat").textContent = totals.fat;
-        document.getElementById("totalCalories").textContent = totals.calories;
-
-        // Today's Macros
-        document.getElementById("todayProtein").textContent =
-          totals.protein + " g";
-        document.getElementById("todayCarbs").textContent = totals.carbs + " g";
-        document.getElementById("todayFat").textContent = totals.fat + " g";
-        document.getElementById("todayCalories").textContent = totals.calories;
+        document.getElementById(
+          'todayProtein'
+        ).textContent = `${totals.protein} / ${dailyTargets.protein} g`
+        document.getElementById(
+          'todayCarbs'
+        ).textContent = `${totals.carbs} / ${dailyTargets.carbs} g`
+        document.getElementById(
+          'todayFat'
+        ).textContent = `${totals.fat} / ${dailyTargets.fat} g`
+        document.getElementById(
+          'todayCalories'
+        ).textContent = `${totals.calories} / ${dailyTargets.calories} kcal`
       }
 
       function clearInputs() {
-        document.getElementById("food").value = "";
-        document.getElementById("protein").value = "";
-        document.getElementById("carbs").value = "";
-        document.getElementById("fat").value = "";
-        document.getElementById("calories").value = "";
+        document.getElementById('food').value = ''
+        document.getElementById('protein').value = ''
+        document.getElementById('carbs').value = ''
+        document.getElementById('fat').value = ''
+        document.getElementById('calories').value = ''
       }
 
-      function clearAll() {
-        if (!confirm("Clear all saved data?")) return;
-        foods = [];
-        saveToLocalStorage();
-        document.getElementById("foodTable").innerHTML = "";
-        updateTotals();
+      window.addFood = async function () {
+        const foodName = document.getElementById('food').value.trim()
+        const protein = Number(document.getElementById('protein').value)
+        const carbs = Number(document.getElementById('carbs').value)
+        const fat = Number(document.getElementById('fat').value)
+        const calories = Number(document.getElementById('calories').value)
+
+        if (!foodName) return alert('Enter food name')
+
+        const food = { foodName, protein, carbs, fat, calories, date: today }
+
+        const docRef = await addDoc(
+          collection(db, 'users', userId, 'macros'),
+          food
+        )
+
+        food.id = docRef.id
+        foods.push(food)
+        addRow(food)
+        updateTotals()
+        clearInputs()
       }
 
-      // Load stored data on page load
-      loadFoods();
+      window.deleteFood = async function (id) {
+        await deleteDoc(doc(db, 'users', userId, 'macros', id))
+        foods = foods.filter(f => f.id !== id)
+        document.getElementById('foodTable').innerHTML = ''
+        foods.forEach(addRow)
+        updateTotals()
+      }
     </script>
   </body>
 </html>
